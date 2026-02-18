@@ -1,0 +1,1 @@
+# Job Hunter common utilities

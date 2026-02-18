@@ -1,0 +1,12 @@
+# User config (contains API keys and personal paths)
+~/.config/job-hunter/
+config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Logs
+*.log
