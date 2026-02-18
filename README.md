@@ -12,6 +12,21 @@ description: |
 
 Automates your job search by searching job postings via Tavily, matching them to your resume, generating cover letters, and organizing everything in Obsidian.
 
+## Preview
+
+<table>
+  <tr>
+    <td><img src="assets/xhs/01-cover.png" width="320"/></td>
+    <td><img src="assets/xhs/02-features.png" width="320"/></td>
+    <td><img src="assets/xhs/03-workflow.png" width="320"/></td>
+  </tr>
+  <tr>
+    <td><img src="assets/xhs/04-setup.png" width="320"/></td>
+    <td><img src="assets/xhs/05-output.png" width="320"/></td>
+    <td><img src="assets/xhs/06-ending.png" width="320"/></td>
+  </tr>
+</table>
+
 ## Quick Start
 
 ### First-Time Setup
