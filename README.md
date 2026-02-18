@@ -102,6 +102,10 @@ After the user responds with their selection (e.g. "1, 3"):
 - Only those specific cover letters are created in `Cover Letters/YYYY-MM-DD/`
 - If `--indices` is omitted, falls back to `--top N` behavior (for automated/cron use)
 
+## References
+
+- [Tavily Setup Guide](references/tavily-setup.md) — API key setup, pricing, parameters, troubleshooting
+
 ## Configuration Reference
 
 Config file: `~/.config/job-hunter/config.json`
