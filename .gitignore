@@ -1,3 +1,6 @@
+# macOS metadata
+.DS_Store
+
 # User config (contains API keys and personal paths)
 ~/.config/job-hunter/
 config.json
