@@ -269,18 +269,13 @@ def normalize_tavily_result(result: dict) -> dict:
 
 
 def _determine_time_range(config: dict) -> str:
-    """Use configured time_range on first run; fall back to 'day' on all subsequent runs.
+    """Always use the configured time_range (default 'week').
 
-    'First run' = no dated Job Tracker files exist in the Obsidian vault yet.
-    This lets the initial run cast a wide net (week) while daily runs only
-    fetch genuinely new postings (day), avoiding duplicate results.
+    Previously this switched to 'day' after the first run, but Tavily's day
+    window returns almost exclusively aggregator search pages rather than
+    individual job postings, resulting in empty trackers. Deduplication via
+    URL hashing in filter_seen_jobs handles repeat suppression instead.
     """
-    vault = config.get("obsidian_vault", "")
-    if vault:
-        vault_path = Path(vault).expanduser()
-        if list(vault_path.glob("Job Tracker - *.md")):
-            return "day"
-    # First run: respect whatever time_range is set in config (default "week")
     return config.get("search", {}).get("time_range", "week")
 
 

@@ -73,9 +73,6 @@ def load_seen_jobs(obsidian_path: str) -> set[str]:
                     continue
                 parts = [p.strip() for p in line.split("|")]
                 for part in parts:
-                    # Legacy format: explicit 12-char alphanumeric ID column
-                    if len(part) == 12 and part.isalnum():
-                        seen.add(part)
                     # New format: extract URL from [Apply](url) and hash it
                     for url in re.findall(r'\[(?:Apply|Link)\]\(([^)]+)\)', part):
                         seen.add(hashlib.md5(url.encode()).hexdigest()[:12])
