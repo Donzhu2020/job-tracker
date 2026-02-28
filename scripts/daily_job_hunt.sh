@@ -73,7 +73,7 @@ from pathlib import Path
 with open("$SCORED") as f:
     jobs = json.load(f)
 
-filtered = [j for j in jobs if j.get("match_score", 0) > 40]
+filtered = [j for j in jobs if j.get("match_score", 0) > 70]
 tracker_path = Path("$TRACKER")
 
 if tracker_path.exists():
@@ -82,7 +82,7 @@ else:
     lines = [
         "# Job Tracker - $TODAY",
         "",
-        f"**Jobs with score > 40:** {len(filtered)} of {len(jobs)} found today",
+        f"**Jobs with score > 70:** {len(filtered)} of {len(jobs)} found today",
         "",
         "| # | Score | Title | Company | Salary | Remote | Source | Link |",
         "|---|-------|-------|---------|--------|--------|--------|------|",
