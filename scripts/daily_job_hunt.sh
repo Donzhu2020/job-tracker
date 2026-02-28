@@ -21,9 +21,44 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 log "========================================"
 log "Starting daily job hunt for $TODAY..."
 
-# Step 1: Search
-log "Searching jobs..."
-$PYTHON "$SCRIPTS_DIR/run_search.py" --config "$CONFIG" -o "$SCRAPED" 2>&1 | tee -a "$LOG_FILE"
+# Step 1: JobSpy (runs every day — no API key, no rate limit)
+log "Searching jobs (JobSpy)..."
+$PYTHON "$SCRIPTS_DIR/run_search.py" --provider jobspy --config "$CONFIG" -o "$SCRAPED" 2>&1 | tee -a "$LOG_FILE"
+
+# Step 1b: JSearch (runs every 2 days — conserves 200 free req/month)
+JSEARCH_STATE="$HOME/.job-hunter-jsearch-last-run"
+JSEARCH_KEY=$($PYTHON -c "import json; print(json.load(open('$CONFIG')).get('jsearch_api_key',''))" 2>/dev/null || echo "")
+
+if [ -n "$JSEARCH_KEY" ]; then
+    DAYS_SINCE=999
+    if [ -f "$JSEARCH_STATE" ]; then
+        DAYS_SINCE=$($PYTHON -c "from datetime import date; print((date.today()-date.fromisoformat(open('$JSEARCH_STATE').read().strip())).days)" 2>/dev/null || echo 999)
+    fi
+
+    if [ "$DAYS_SINCE" -ge 2 ]; then
+        log "Running JSearch (every-2-day supplement)..."
+        JSEARCH_TMP=$(mktemp /tmp/jsearch_jobs.XXXXXX.json)
+        if $PYTHON "$SCRIPTS_DIR/run_search.py" --provider jsearch --config "$CONFIG" -o "$JSEARCH_TMP" 2>&1 | tee -a "$LOG_FILE"; then
+            MERGED_TMP=$(mktemp /tmp/merged_jobs.XXXXXX.json)
+            $PYTHON - <<PYEOF 2>&1 | tee -a "$LOG_FILE"
+import json, sys
+sys.path.insert(0, '$SCRIPTS_DIR')
+from common.dedup import deduplicate_jobs
+a = json.load(open('$SCRAPED'))
+b = json.load(open('$JSEARCH_TMP'))
+merged = deduplicate_jobs(a + b)
+json.dump(merged, open('$MERGED_TMP', 'w'), indent=2, default=str)
+print(f"Merged: {len(a)} JobSpy + {len(b)} JSearch → {len(merged)} after dedup")
+PYEOF
+            cp "$MERGED_TMP" "$SCRAPED"
+            rm -f "$MERGED_TMP"
+            echo "$TODAY" > "$JSEARCH_STATE"
+        fi
+        rm -f "$JSEARCH_TMP"
+    else
+        log "JSearch skip (last ran ${DAYS_SINCE}d ago, next in $((2-DAYS_SINCE))d)"
+    fi
+fi
 
 # Step 2: Score against resume
 log "Scoring jobs..."

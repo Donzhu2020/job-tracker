@@ -19,7 +19,8 @@ CONFIG_DIR = Path.home() / ".config" / "job-hunter"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG = {
-    "tavily_api_key": "",
+    "jsearch_api_key": "",
+    "search_provider": "jobspy",
     "resume_path": "",
     "obsidian_vault": "",
     "user_name": "",
@@ -29,7 +30,7 @@ DEFAULT_CONFIG = {
         "remote": True,
         "time_range": "week",
         "max_results_per_query": 20,
-        "job_domains": ["linkedin.com/jobs", "indeed.com", "glassdoor.com"]
+        "job_domains": ["linkedin.com", "indeed.com", "glassdoor.com", "builtin.com", "wellfound.com"]
     }
 }
 
@@ -76,8 +77,10 @@ def validate_config(config: dict) -> list[str]:
     """Validate configuration and return list of errors."""
     errors = []
 
-    if not config.get("tavily_api_key"):
-        errors.append("Missing Tavily API key")
+    provider = config.get("search_provider", "jobspy")
+    if provider == "jsearch" and not config.get("jsearch_api_key"):
+        errors.append("Missing JSearch API key (search_provider is 'jsearch')")
+    # jobspy requires no API key
 
     if not config.get("resume_path"):
         errors.append("Missing resume path")
@@ -130,16 +133,29 @@ def setup_interactive() -> dict:
 
     config = load_existing_config()
 
-    # Tavily API Key
-    print("1. TAVILY CONFIGURATION")
+    # Search provider
+    print("1. SEARCH PROVIDER")
     print("-" * 30)
-    print("Get your API key from: https://app.tavily.com/home")
-    config["tavily_api_key"] = prompt(
-        "Tavily API key",
-        default=config.get("tavily_api_key", "")[:10] + "..." if config.get("tavily_api_key") else "",
-        required=True,
-        secret=True
-    )
+    print("  jobspy  - No API key needed. Uses LinkedIn's public guest API. (Recommended)")
+    print("  jsearch - RapidAPI. 200 free requests/month. Google Jobs aggregator.")
+    config["search_provider"] = prompt(
+        "Search provider (jobspy/jsearch)",
+        default=config.get("search_provider", "jobspy")
+    ).lower()
+    print()
+
+    if config["search_provider"] == "jsearch":
+        print("1a. JSEARCH CONFIGURATION")
+        print("-" * 30)
+        print("Get your API key from: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch")
+        config["jsearch_api_key"] = prompt(
+            "JSearch (RapidAPI) API key",
+            default="***" if config.get("jsearch_api_key") else "",
+            required=True,
+            secret=True
+        )
+    else:
+        print("1a. JOBSPY — no API key required.")
     print()
 
     # User Name
@@ -193,11 +209,16 @@ def setup_interactive() -> dict:
     )
     search_config["remote"] = remote_input.lower() in ("yes", "y", "true", "1")
 
+    _provider = config.get("search_provider", "jobspy")
+    if _provider == "jsearch":
+        max_cap, cap_note = 10, "  ← 10/request; each keyword uses 1 request"
+    else:
+        max_cap, cap_note = 20, "  ← LinkedIn rate-limits at ~100 results/IP"
     max_results = prompt(
-        "Max results per query (1-20)",
-        default=str(search_config.get("max_results_per_query", 20))
+        f"Max results per query (1-{max_cap}){cap_note}",
+        default=str(search_config.get("max_results_per_query", max_cap))
     )
-    search_config["max_results_per_query"] = min(20, int(max_results)) if max_results.isdigit() else 20
+    search_config["max_results_per_query"] = min(max_cap, int(max_results)) if max_results.isdigit() else max_cap
 
     search_config["time_range"] = prompt(
         "Time range for job postings (day/week/month)",
@@ -208,7 +229,8 @@ def setup_interactive() -> dict:
     print()
 
     # Remove legacy fields if present
-    for key in ["apify_api_key", "linkedin_search_url", "indeed_search_url", "email"]:
+    for key in ["apify_api_key", "linkedin_search_url", "indeed_search_url", "email",
+                "tavily_api_key", "exa_api_key"]:
         config.pop(key, None)
 
     return config
@@ -248,8 +270,8 @@ def main():
         config = load_existing_config()
 
         display_config = json.loads(json.dumps(config))
-        if display_config.get("tavily_api_key"):
-            display_config["tavily_api_key"] = display_config["tavily_api_key"][:10] + "..."
+        if display_config.get("jsearch_api_key"):
+            display_config["jsearch_api_key"] = display_config["jsearch_api_key"][:10] + "..."
 
         print(json.dumps(display_config, indent=2))
         sys.exit(0)
