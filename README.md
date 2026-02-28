@@ -218,3 +218,7 @@ job-hunter/
 **Virtual environment issues**
 - Re-run `bash ~/.claude/skills/job-hunter/scripts/setup_venv.sh`
 - Requires Python 3.10+
+
+## Acknowledgments
+
+- **[JobSpy](https://github.com/speedyapply/JobSpy)** — Job scraping library that powers the LinkedIn and Indeed integration. Thanks to the JobSpy team for making job data accessible without API keys.
