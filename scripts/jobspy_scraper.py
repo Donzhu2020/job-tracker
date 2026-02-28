@@ -61,7 +61,7 @@ def _domains_to_sites(domains: list[str]) -> list[str]:
     """Convert config job_domains list to JobSpy site name list.
 
     Handles both exact keys ('linkedin.com') and path-prefixed variants
-    ('linkedin.com/jobs') that Tavily users may have in their config.
+    ('linkedin.com/jobs') that users may have in their config.
     """
     sites = []
     for d in domains:

@@ -21,7 +21,7 @@ bash scripts/setup_venv.sh
 PYTHON=~/.venv/job-hunter/bin/python3
 CONFIG=~/.config/job-hunter/config.json
 
-# 1. Search (provider from config, or override with --provider jobspy|tavily|exa|jsearch)
+# 1. Search (provider from config, or override with --provider jobspy|jsearch)
 $PYTHON scripts/run_search.py --config $CONFIG -o /tmp/jobs.json
 $PYTHON scripts/run_search.py --provider jsearch --config $CONFIG -o /tmp/jobs.json
 
@@ -66,7 +66,7 @@ Google Jobs/RapidAPI→ jsearch_scraper.py─┴→ run_search.py → [raw jobs 
   - `date_utils.py` — date helpers
 - `jobspy_scraper.py` — Uses `python-jobspy` to hit LinkedIn's undocumented public guest API (`/jobs-guest/...`); no API key needed; also supports Indeed/Glassdoor/ZipRecruiter; rate-limited at ~100 results/IP by LinkedIn
 - `jsearch_scraper.py` — Calls JSearch on RapidAPI (`jsearch.p.rapidapi.com`), which aggregates Google Jobs (LinkedIn, Indeed, Dice, and 100s of company career pages); 200 free requests/month; returns full descriptions; auto-paginates for >10 results
-- `run_search.py` — provider-switching CLI: reads `search_provider` from config (or `--provider` flag), dispatches to tavily/exa/jobspy/jsearch scraper; output schema is identical regardless of provider
+- `run_search.py` — provider-switching CLI: reads `search_provider` from config (or `--provider` flag), dispatches to jobspy/jsearch scraper; output schema is identical regardless of provider
 - `score_jobs.py` — CLI wrapper around `common.job_scoring.score_jobs()`
 - `generate_cover_letters.py` — produces Markdown cover letter templates with job metadata
 
