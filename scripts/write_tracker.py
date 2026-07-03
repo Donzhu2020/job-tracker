@@ -24,29 +24,48 @@ from common.config import load_config
 DEFAULT_MIN_SCORE = 70
 
 
+def _score(job: dict) -> int:
+    """Final score if AI re-ranking ran, else keyword score."""
+    return job.get("final_score", job.get("match_score", 0))
+
+
 def build_tracker(jobs: list[dict], min_score: int, day: str) -> tuple[str, int]:
     """Return (markdown content, number of jobs included)."""
-    filtered = [j for j in jobs if j.get("match_score", 0) > min_score]
+    filtered = [j for j in jobs if _score(j) > min_score]
+    has_ai = any("ai_score" in j for j in jobs)
+
+    header = "| # | Score | Title | Company | Salary | Remote | Source | Link |"
+    sep = "|---|-------|-------|---------|--------|--------|--------|------|"
+    if has_ai:
+        header = "| # | Score | Title | Company | Salary | Remote | Source | Why | Link |"
+        sep = "|---|-------|-------|---------|--------|--------|--------|-----|------|"
 
     lines = [
         f"# Job Tracker - {day}",
         "",
-        f"**Jobs with score > {min_score}:** {len(filtered)} of {len(jobs)} found today",
+        f"**Jobs with score > {min_score}:** {len(filtered)} of {len(jobs)} found today"
+        + (" _(AI re-ranked)_" if has_ai else ""),
         "",
-        "| # | Score | Title | Company | Salary | Remote | Source | Link |",
-        "|---|-------|-------|---------|--------|--------|--------|------|",
+        header,
+        sep,
     ]
     for i, job in enumerate(filtered, 1):
         title = (job.get("title") or "N/A").replace("|", "-")[:50]
         company = (job.get("company") or "-").replace("|", "-")[:30]
-        score = job.get("match_score", 0)
+        score = _score(job)
         salary = job.get("salary") or "-"
         remote = "Yes" if job.get("remote") else "No"
         source = (job.get("source") or "-").capitalize()
         url = job.get("url") or "#"
-        lines.append(
-            f"| {i} | {score} | {title} | {company} | {salary} | {remote} | {source} | [Apply]({url}) |"
-        )
+        if has_ai:
+            why = (job.get("ai_reason") or "-").replace("|", "-")[:80]
+            lines.append(
+                f"| {i} | {score} | {title} | {company} | {salary} | {remote} | {source} | {why} | [Apply]({url}) |"
+            )
+        else:
+            lines.append(
+                f"| {i} | {score} | {title} | {company} | {salary} | {remote} | {source} | [Apply]({url}) |"
+            )
     return "\n".join(lines) + "\n", len(filtered)
 
 

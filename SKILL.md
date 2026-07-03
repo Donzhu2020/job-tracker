@@ -86,6 +86,28 @@ Each job is scored 0–100 based on skill keyword matching:
 - Bonus: role alignment (+15), healthcare domain (+10), EHR tools (+8), remote (+5)
 - Skills are extracted automatically from your resume (PDF/DOCX/TXT)
 
+### 4b. AI Re-rank (interactive runs only)
+
+Keyword scoring is literal — it can't distinguish "we use Python for Excel macros" from "ML platform team". When the skill runs interactively (not via cron), Claude re-ranks the top jobs by actually reading them:
+
+1. **Prep** — build a compact packet of the top ~30 keyword-scored jobs + resume:
+   ```bash
+   ~/.venv/job-hunter/bin/python3 ~/.claude/skills/job-hunter/scripts/rerank.py prep \
+     -i /tmp/scored.json -o /tmp/rerank_packet.md --top 30
+   ```
+2. **Judge** — Claude reads `/tmp/rerank_packet.md` and scores every job 0–100 for holistic fit (seniority, domain, day-to-day work vs. resume — not keyword counts). Claude writes the result to `/tmp/rerank_scores.json` as:
+   ```json
+   {"<job id>": {"ai_score": 88, "ai_reason": "Strong healthcare + Python overlap"}}
+   ```
+   Every job id from the packet must appear. Keep reasons under 80 chars.
+3. **Apply** — merge scores back and re-sort:
+   ```bash
+   ~/.venv/job-hunter/bin/python3 ~/.claude/skills/job-hunter/scripts/rerank.py apply \
+     -i /tmp/scored.json -r /tmp/rerank_scores.json
+   ```
+
+Each job gains `final_score` (AI score when present, keyword score otherwise) and the tracker sorts/filters by it, adding a **Why** column. Cron runs skip this step automatically — `write_tracker.py` falls back to keyword scores.
+
 ### 5. Save Job Tracker to Obsidian
 
 Writes `Job Tracker - YYYY-MM-DD.md` with all jobs scoring **> 70**, sorted by score descending. Idempotent — skips if today's file already exists.
@@ -165,7 +187,8 @@ Config file: `~/.config/job-hunter/config.json`
 | `scripts/jobspy_scraper.py` | LinkedIn/Indeed via guest API (no key) |
 | `scripts/jsearch_scraper.py` | Google Jobs via RapidAPI |
 | `scripts/run_search.py` | Provider-switching search CLI |
-| `scripts/score_jobs.py` | Score jobs against resume |
+| `scripts/score_jobs.py` | Score jobs against resume (keyword-based) |
+| `scripts/rerank.py` | Prep/apply AI re-ranking by Claude (interactive runs) |
 | `scripts/generate_cover_letters.py` | Generate cover letter templates |
 | `scripts/write_tracker.py` | Write ranked Job Tracker markdown to Obsidian |
 | `scripts/daily_job_hunt.sh` | Full pipeline orchestration (cron) |

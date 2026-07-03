@@ -28,6 +28,11 @@ $PYTHON scripts/run_search.py --provider jsearch --config $CONFIG -o /tmp/jobs.j
 # 2. Score
 $PYTHON scripts/score_jobs.py -i /tmp/jobs.json -o /tmp/scored.json --config $CONFIG
 
+# 2b. Optional AI re-rank (interactive runs: Claude reads packet, writes scores, applies)
+$PYTHON scripts/rerank.py prep -i /tmp/scored.json -o /tmp/rerank_packet.md --top 30
+# ... Claude reads packet, writes /tmp/rerank_scores.json ({id: {ai_score, ai_reason}}) ...
+$PYTHON scripts/rerank.py apply -i /tmp/scored.json -r /tmp/rerank_scores.json
+
 # 3. Write tracker to Obsidian (idempotent; --force to overwrite)
 $PYTHON scripts/write_tracker.py -i /tmp/scored.json --config $CONFIG
 
@@ -71,7 +76,8 @@ Google Jobs/RapidAPI→ jsearch_scraper.py─┴→ run_search.py → [raw jobs 
 - `jsearch_scraper.py` — Calls JSearch on RapidAPI (`jsearch.p.rapidapi.com`), which aggregates Google Jobs (LinkedIn, Indeed, Dice, and 100s of company career pages); 200 free requests/month; returns full descriptions; auto-paginates for >10 results
 - `run_search.py` — provider-switching CLI: reads `search_provider` from config (or `--provider` flag), dispatches to jobspy/jsearch scraper; output schema is identical regardless of provider
 - `score_jobs.py` — CLI wrapper around `common.job_scoring.score_jobs()`
-- `write_tracker.py` — writes the ranked Job Tracker markdown to the Obsidian vault (idempotent; `min_score` from config, default 70; `--force` to overwrite)
+- `rerank.py` — AI re-rank helper: `prep` bundles top-N scored jobs + resume into a markdown packet; the Claude session running the skill reads it, judges fit holistically, and writes `{id: {ai_score, ai_reason}}` JSON; `apply` merges scores back, sets `final_score` (ai_score if present, else match_score), and re-sorts. Interactive runs only — cron skips it and everything falls back to keyword scores
+- `write_tracker.py` — writes the ranked Job Tracker markdown to the Obsidian vault (idempotent; `min_score` from config, default 70; `--force` to overwrite; sorts/filters by `final_score` when present and adds a "Why" column with `ai_reason`)
 - `generate_cover_letters.py` — produces Markdown cover letter templates with job metadata
 
 ### Job Schema

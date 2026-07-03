@@ -157,12 +157,17 @@ def setup_interactive() -> dict:
         print("1a. JSEARCH CONFIGURATION")
         print("-" * 30)
         print("Get your API key from: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch")
-        config["jsearch_api_key"] = prompt(
+        existing_key = config.get("jsearch_api_key", "")
+        new_key = prompt(
             "JSearch (RapidAPI) API key",
-            default="***" if config.get("jsearch_api_key") else "",
-            required=True,
-            secret=True
+            default="***" if existing_key else "",
+            required=not existing_key,
+            secret=True,
         )
+        if new_key and new_key != "***":
+            config["jsearch_api_key"] = new_key
+        elif not existing_key:
+            config["jsearch_api_key"] = new_key  # required path; prompt loop ensures non-empty
     else:
         print("1a. JOBSPY — no API key required.")
     print()
@@ -281,6 +286,9 @@ def main():
         display_config = json.loads(json.dumps(config))
         if display_config.get("jsearch_api_key"):
             display_config["jsearch_api_key"] = display_config["jsearch_api_key"][:10] + "..."
+        search = display_config.get("search", {})
+        if search.get("proxies"):
+            search["proxies"] = ["***" if p else p for p in search["proxies"]]
 
         print(json.dumps(display_config, indent=2))
         sys.exit(0)

@@ -10,7 +10,7 @@ description: |
 
 # Job Hunter Skill
 
-Automates your job search: scrapes LinkedIn, Indeed, and 100+ job boards daily, scores every posting against your resume, and saves a ranked tracker to Obsidian. No LinkedIn account needed.
+Automates your job search: scrapes LinkedIn, Indeed, and 100+ job boards daily, scores every posting against your resume, optionally has Claude re-rank the top matches by actually reading them, and saves a ranked tracker to Obsidian. No LinkedIn account needed.
 
 ## Preview
 
@@ -85,6 +85,8 @@ JobSpy  ~60 jobs ─┐
 JSearch ~100 jobs─┘
 ```
 
+Each site is scraped independently with automatic retry, so one board failing (e.g. a LinkedIn rate limit) never wipes out results from the others.
+
 ### 2. Score against resume
 
 Each job is scored 0–100 based on skill keyword matching:
@@ -92,15 +94,19 @@ Each job is scored 0–100 based on skill keyword matching:
 - Bonus: role alignment (+15), healthcare domain (+10), EHR tools (+8), remote (+5)
 - Skills are extracted automatically from your resume (PDF/DOCX/TXT)
 
+### 2b. AI re-rank (interactive runs)
+
+Keyword scoring is literal — it can't tell "we use Python for Excel macros" from "ML platform team". When you run `/job-hunt` interactively, Claude reads the top ~30 jobs plus your resume (`rerank.py prep`), judges each one holistically, and merges its 0–100 scores back (`rerank.py apply`). The tracker then sorts by AI score and adds a **Why** column. Cron runs skip this step and fall back to keyword scores — no API key or extra cost either way.
+
 ### 3. Save Job Tracker to Obsidian
 
-Writes `Job Tracker - YYYY-MM-DD.md` with all jobs scoring **> 70**, sorted by score descending. Idempotent — skips if today's file already exists.
+Writes `Job Tracker - YYYY-MM-DD.md` with all jobs scoring above `min_score` (default **70**), sorted by score descending. Idempotent — skips if today's file already exists.
 
 ```markdown
-| # | Score | Title | Company | Salary | Remote | Source | Link |
-|---|-------|-------|---------|--------|--------|--------|------|
-| 1 | 100   | Data Engineer II | Dana-Farber Cancer Institute | - | Yes | Indeed | [Apply](url) |
-| 2 | 100   | Senior Health Data Informaticist | Veeva Systems | - | Yes | Linkedin | [Apply](url) |
+| # | Score | Title | Company | Salary | Remote | Source | Why | Link |
+|---|-------|-------|---------|--------|--------|--------|-----|------|
+| 1 | 92    | Data Engineer II | Dana-Farber Cancer Institute | - | Yes | Indeed | Strong healthcare + Python overlap | [Apply](url) |
+| 2 | 88    | Senior Health Data Informaticist | Veeva Systems | - | Yes | Linkedin | EHR domain match, senior fit | [Apply](url) |
 ```
 
 ### 4. Wait for User Selection — STOP HERE
@@ -132,13 +138,19 @@ Config file: `~/.config/job-hunter/config.json`
   "resume_path": "/path/to/resume.pdf",
   "obsidian_vault": "~/Documents/Obsidian Vault/job-hunter",
   "user_name": "Your Name",
+  "min_score": 70,
   "search": {
     "keywords": ["data analyst", "healthcare data analyst", "research analyst"],
     "location": "Boston, MA",
     "remote": true,
     "time_range": "week",
     "max_results_per_query": 20,
-    "job_domains": ["linkedin.com", "indeed.com", "glassdoor.com"]
+    "job_domains": ["linkedin.com", "indeed.com"],
+    "linkedin_fetch_description": true,
+    "request_delay": 3,
+    "proxies": [],
+    "user_agent": "",
+    "country_indeed": "USA"
   }
 }
 ```
@@ -149,8 +161,14 @@ Config file: `~/.config/job-hunter/config.json`
 |-------|-------------|
 | `jsearch_api_key` | RapidAPI key for JSearch (free tier: 200 req/month) |
 | `search_provider` | `"jobspy"` (default) or `"jsearch"` for manual override |
+| `min_score` | Tracker only includes jobs scoring above this (default 70) |
 | `search.max_results_per_query` | Max 20 for JobSpy, max 10 for JSearch |
-| `search.job_domains` | Used by JobSpy; maps to `linkedin`, `indeed`, `glassdoor`, `zip_recruiter` |
+| `search.job_domains` | Used by JobSpy; maps to `linkedin`, `indeed`, `glassdoor`, `zip_recruiter`. Glassdoor is off by default (upstream 400 errors) |
+| `search.linkedin_fetch_description` | Full LinkedIn descriptions (1 extra request/job). Set `false` if you hit 429 rate limits |
+| `search.request_delay` | Seconds between JobSpy calls (default 3) — reduces rate-limiting |
+| `search.proxies` | Proxy list `["user:pass@host:port"]` — the reliable fix for persistent LinkedIn 429s |
+| `search.user_agent` | Override JobSpy's default browser user-agent if it gets blocked |
+| `search.country_indeed` | Indeed/Glassdoor country (default `"USA"`) |
 
 ## Scheduling
 
@@ -181,7 +199,9 @@ rm ~/.job-hunter-jsearch-last-run
 | `scripts/jobspy_scraper.py` | LinkedIn/Indeed via guest API (no key) |
 | `scripts/jsearch_scraper.py` | Google Jobs via RapidAPI |
 | `scripts/run_search.py` | Provider-switching search CLI |
-| `scripts/score_jobs.py` | Score jobs against resume |
+| `scripts/score_jobs.py` | Score jobs against resume (keyword-based) |
+| `scripts/rerank.py` | Prep/apply AI re-ranking by Claude (interactive runs) |
+| `scripts/write_tracker.py` | Write ranked Job Tracker markdown to Obsidian |
 | `scripts/generate_cover_letters.py` | Generate cover letter templates |
 | `scripts/daily_job_hunt.sh` | Full pipeline orchestration (cron) |
 | `scripts/setup_config.py` | Interactive config setup |
@@ -204,8 +224,16 @@ job-hunter/
 ## Troubleshooting
 
 **No jobs found**
+- Check `~/.job-hunter.log` — runs print per-site totals (`Per-site totals: linkedin=0, indeed=25`) so you can see which board failed
 - Broaden search keywords in config
-- Check `~/.job-hunter.log` for errors
+
+**LinkedIn returns 0 results / 429 errors**
+- LinkedIn aggressively rate-limits (~100 results per IP, then blocks). In config:
+  1. Set `search.linkedin_fetch_description: false` (biggest win — cuts requests by ~95%)
+  2. Lower `search.max_results_per_query`
+  3. Increase `search.request_delay` (e.g. 10)
+  4. Add `search.proxies` — per JobSpy maintainers, proxies are the only durable fix
+- Indeed has no rate limiting and full descriptions — results still flow while LinkedIn cools down
 
 **JSearch API errors**
 - Verify key at [rapidapi.com](https://rapidapi.com)
@@ -213,7 +241,7 @@ job-hunter/
 - Delete `~/.job-hunter-jsearch-last-run` to retry
 
 **Glassdoor 400 errors in logs**
-- Known upstream issue in JobSpy — non-fatal, LinkedIn/Indeed results still collected
+- Known upstream issue in JobSpy — Glassdoor is excluded from default sites; remove `glassdoor.com` from `job_domains` if you added it
 
 **Virtual environment issues**
 - Re-run `bash ~/.claude/skills/job-hunter/scripts/setup_venv.sh`

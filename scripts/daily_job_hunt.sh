@@ -28,9 +28,8 @@ $PYTHON "$SCRIPTS_DIR/run_search.py" --provider jobspy --config "$CONFIG" -o "$S
 
 # Step 1b: JSearch (runs every 2 days — conserves 200 free req/month)
 JSEARCH_STATE="$HOME/.job-hunter-jsearch-last-run"
-JSEARCH_KEY=$($PYTHON -c "import json; print(json.load(open('$CONFIG')).get('jsearch_api_key',''))" 2>/dev/null || echo "")
-
-if [ -n "$JSEARCH_KEY" ]; then
+# Check key presence without loading it into a shell variable (avoids bash -x trace leaks)
+if $PYTHON -c "import json, sys; sys.exit(0 if json.load(open('$CONFIG')).get('jsearch_api_key') else 1)" 2>/dev/null; then
     DAYS_SINCE=999
     if [ -f "$JSEARCH_STATE" ]; then
         DAYS_SINCE=$($PYTHON -c "from datetime import date; print((date.today()-date.fromisoformat(open('$JSEARCH_STATE').read().strip())).days)" 2>/dev/null || echo 999)
