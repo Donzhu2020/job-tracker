@@ -13,3 +13,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# Claude local settings
+.claude/

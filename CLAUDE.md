@@ -28,7 +28,10 @@ $PYTHON scripts/run_search.py --provider jsearch --config $CONFIG -o /tmp/jobs.j
 # 2. Score
 $PYTHON scripts/score_jobs.py -i /tmp/jobs.json -o /tmp/scored.json --config $CONFIG
 
-# 3. Cover letters (after user selects from tracker)
+# 3. Write tracker to Obsidian (idempotent; --force to overwrite)
+$PYTHON scripts/write_tracker.py -i /tmp/scored.json --config $CONFIG
+
+# 4. Cover letters (after user selects from tracker)
 $PYTHON scripts/generate_cover_letters.py --jobs /tmp/scored.json --indices "1,3"
 ```
 
@@ -51,7 +54,7 @@ Google Jobs/RapidAPI→ jsearch_scraper.py─┴→ run_search.py → [raw jobs 
                                        ↓
                               [scored jobs JSON, sorted by match_score desc]
                                        ↓
-                   daily_job_hunt.sh writes → Obsidian: Job Tracker - YYYY-MM-DD.md
+                   write_tracker.py writes → Obsidian: Job Tracker - YYYY-MM-DD.md
                                        ↓  (user reviews and picks numbers)
                               generate_cover_letters.py
                                        ↓
@@ -62,12 +65,13 @@ Google Jobs/RapidAPI→ jsearch_scraper.py─┴→ run_search.py → [raw jobs 
 - `scripts/common/` — shared library imported by all scripts via `sys.path.insert`
   - `config.py` — loads `~/.config/job-hunter/config.json`
   - `job_scoring.py` — extracts skills from resume, scores/ranks jobs (0–100)
-  - `dedup.py` — URL-based dedup (pass 1), normalized-title dedup (pass 2), tracks seen jobs across all Obsidian tracker files
+  - `dedup.py` — URL-based dedup (pass 1), normalized (title, company) dedup (pass 2), tracks seen jobs across all Obsidian tracker files
   - `date_utils.py` — date helpers
-- `jobspy_scraper.py` — Uses `python-jobspy` to hit LinkedIn's undocumented public guest API (`/jobs-guest/...`); no API key needed; also supports Indeed/Glassdoor/ZipRecruiter; rate-limited at ~100 results/IP by LinkedIn
+- `jobspy_scraper.py` — Uses `python-jobspy` to hit LinkedIn's undocumented public guest API (`/jobs-guest/...`); no API key needed; also supports Indeed/Glassdoor/ZipRecruiter; rate-limited at ~100 results/IP by LinkedIn. Each site is scraped **individually** (per-site try/except + one retry after 10s) so one failing board can't discard the others' results; supports `linkedin_fetch_description`, `request_delay`, `proxies`, `user_agent` config knobs
 - `jsearch_scraper.py` — Calls JSearch on RapidAPI (`jsearch.p.rapidapi.com`), which aggregates Google Jobs (LinkedIn, Indeed, Dice, and 100s of company career pages); 200 free requests/month; returns full descriptions; auto-paginates for >10 results
 - `run_search.py` — provider-switching CLI: reads `search_provider` from config (or `--provider` flag), dispatches to jobspy/jsearch scraper; output schema is identical regardless of provider
 - `score_jobs.py` — CLI wrapper around `common.job_scoring.score_jobs()`
+- `write_tracker.py` — writes the ranked Job Tracker markdown to the Obsidian vault (idempotent; `min_score` from config, default 70; `--force` to overwrite)
 - `generate_cover_letters.py` — produces Markdown cover letter templates with job metadata
 
 ### Job Schema
@@ -80,8 +84,8 @@ Each job dict has: `title`, `company`, `location`, `description`, `url`, `posted
 - Falls back to hardcoded `_FALLBACK_SKILLS` if resume can't be read
 
 ### Deduplication Strategy (`common/dedup.py`)
-- Pass 1: exact URL dedup
-- Pass 2: normalized title dedup, keeping best source (linkedin > indeed > glassdoor > builtin > wellfound)
+- Pass 1: exact URL dedup (empty URLs are never treated as duplicates of each other)
+- Pass 2: normalized (title, company) dedup, keeping best source (linkedin > indeed > glassdoor > zip_recruiter > ...). Title alone is deliberately NOT the key — different companies post identical titles
 - `filter_seen_jobs()` reads all `Job Tracker*.md` files in the vault and extracts URL hashes to exclude already-seen postings
 
 ### Key Design Decisions
@@ -92,4 +96,4 @@ Each job dict has: `title`, `company`, `location`, `description`, `url`, `posted
 ## Configuration
 Config file: `~/.config/job-hunter/config.json`
 
-Key fields: `search_provider` (`"jobspy"` default, or `"jsearch"`), `jsearch_api_key` (jobspy needs no key), `resume_path` (PDF/DOCX/TXT), `obsidian_vault` (path), `user_name`, `search.keywords[]`, `search.location`, `search.remote` (bool), `search.time_range`, `search.max_results_per_query` (max 10 for JSearch, max 20 for JobSpy), `search.job_domains[]` (JobSpy maps these to `linkedin`, `indeed`, `glassdoor`, `zip_recruiter`; ignored by JSearch).
+Key fields: `search_provider` (`"jobspy"` default, or `"jsearch"`), `jsearch_api_key` (jobspy needs no key), `resume_path` (PDF/DOCX/TXT), `obsidian_vault` (path), `user_name`, `min_score` (tracker threshold, default 70), `search.keywords[]`, `search.location`, `search.remote` (bool), `search.time_range`, `search.max_results_per_query` (max 10 for JSearch, max 20 for JobSpy), `search.job_domains[]` (JobSpy maps these to `linkedin`, `indeed`, `glassdoor`, `zip_recruiter`; ignored by JSearch; glassdoor excluded from defaults due to upstream 400s), `search.linkedin_fetch_description` (default true; set false to avoid LinkedIn 429s), `search.request_delay` (seconds between JobSpy calls, default 3), `search.proxies[]`, `search.user_agent`, `search.country_indeed` (default "USA").

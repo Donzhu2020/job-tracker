@@ -22,27 +22,38 @@ def _normalize_title(title: str) -> str:
 def deduplicate_jobs(jobs: list[dict]) -> list[dict]:
     """Remove duplicate jobs.
 
-    Pass 1: deduplicate by URL (exact).
-    Pass 2: deduplicate by normalized title, keeping the best source
-            (linkedin > indeed > glassdoor > other).
+    Pass 1: deduplicate by URL (exact). Jobs without a URL are kept
+            and handled by pass 2.
+    Pass 2: deduplicate by normalized (title, company) pair, keeping the
+            best source (linkedin > indeed > glassdoor > other).
+            Title alone is NOT enough — different companies frequently
+            post identical titles ("Data Analyst").
     """
-    SOURCE_RANK = {"linkedin": 0, "indeed": 1, "glassdoor": 2, "builtin": 3, "wellfound": 4}
+    SOURCE_RANK = {"linkedin": 0, "indeed": 1, "glassdoor": 2,
+                   "zip_recruiter": 3, "google": 4, "builtin": 5, "wellfound": 6}
 
-    # Pass 1: URL dedup
+    # Pass 1: URL dedup (empty URLs are not treated as duplicates of each other)
     seen_urls: set[str] = set()
     url_unique: list[dict] = []
     for job in jobs:
         url = job.get("url", "").strip()
+        if not url:
+            url_unique.append(job)
+            continue
         if url not in seen_urls:
             seen_urls.add(url)
             url_unique.append(job)
 
-    # Pass 2: title dedup — keep best-source version per unique title
-    title_map: dict[str, dict] = {}
+    # Pass 2: (title, company) dedup — keep best-source version
+    title_map: dict[tuple[str, str], dict] = {}
+    keyless: list[dict] = []
     for job in url_unique:
-        key = _normalize_title(job.get("title", ""))
-        if not key:
+        title_key = _normalize_title(job.get("title", ""))
+        company_key = _normalize_title(job.get("company", ""))
+        if not title_key:
+            keyless.append(job)
             continue
+        key = (title_key, company_key)
         if key not in title_map:
             title_map[key] = job
         else:
@@ -51,7 +62,7 @@ def deduplicate_jobs(jobs: list[dict]) -> list[dict]:
             if new_rank < existing_rank:
                 title_map[key] = job
 
-    return list(title_map.values())
+    return list(title_map.values()) + keyless
 
 
 def load_seen_jobs(obsidian_path: str) -> set[str]:

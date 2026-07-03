@@ -19,7 +19,9 @@ Usage:
 """
 
 import json
+import math
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -37,7 +39,16 @@ DOMAIN_TO_SITE = {
     "ziprecruiter.com": "zip_recruiter",
 }
 
-DEFAULT_SITES = ["linkedin", "indeed", "glassdoor"]
+# Glassdoor removed from defaults: upstream JobSpy returns 400 errors for it
+# (known issue). Users can still opt in via job_domains in config.
+DEFAULT_SITES = ["linkedin", "indeed"]
+
+# Seconds to wait between individual JobSpy calls (per site, per keyword).
+# LinkedIn aggressively rate-limits (~100 results/IP); spacing calls out helps.
+DEFAULT_REQUEST_DELAY = 3
+
+# Seconds to wait before retrying a failed site once
+RETRY_DELAY = 10
 
 TIME_RANGE_TO_HOURS = {
     "day": 24,
@@ -98,12 +109,24 @@ def _format_salary(row) -> str:
 
 def _str(val) -> str:
     """Convert a value to string, treating NaN/None/float-NaN as empty string."""
-    import math
     if val is None:
         return ""
     if isinstance(val, float) and math.isnan(val):
         return ""
     return str(val)
+
+
+def _truthy(val) -> bool:
+    """Strict truthiness that treats pandas NaN as False.
+
+    JobSpy returns DataFrames, so missing booleans come back as float NaN —
+    which is truthy in plain Python and previously mislabeled jobs as remote.
+    """
+    if val is None:
+        return False
+    if isinstance(val, float) and math.isnan(val):
+        return False
+    return bool(val)
 
 
 def normalize_jobspy_row(row: dict) -> dict:
@@ -124,8 +147,7 @@ def normalize_jobspy_row(row: dict) -> dict:
     else:
         posted_date = ""
 
-    is_remote_flag = row.get("is_remote")
-    remote = bool(is_remote_flag) or "remote" in (title + " " + location).lower()
+    remote = _truthy(row.get("is_remote")) or "remote" in (title + " " + location).lower()
 
     job = {
         "title": title,
@@ -145,13 +167,58 @@ def normalize_jobspy_row(row: dict) -> dict:
     return job
 
 
+def _scrape_site(scrape_jobs_fn, site: str, kw: str, loc: str, *,
+                 results_wanted: int, hours_old: int,
+                 fetch_description: bool, country_indeed: str,
+                 proxies: list[str] | None, user_agent: str | None) -> list[dict]:
+    """Scrape a single site for a single keyword. Returns raw rows.
+
+    Isolated per site so that one failing board (LinkedIn 429, Glassdoor 400)
+    no longer discards results already collected from the other boards.
+    Retries once after RETRY_DELAY on failure.
+    """
+    kwargs = dict(
+        site_name=[site],
+        search_term=kw,
+        location=loc,
+        results_wanted=results_wanted,
+        hours_old=hours_old,
+        country_indeed=country_indeed,
+        verbose=0,
+    )
+    if site == "linkedin":
+        kwargs["linkedin_fetch_description"] = fetch_description
+    if proxies:
+        kwargs["proxies"] = proxies
+    if user_agent:
+        kwargs["user_agent"] = user_agent
+
+    last_err = None
+    for attempt in (1, 2):
+        try:
+            df = scrape_jobs_fn(**kwargs)
+            return df.to_dict(orient="records") if df is not None and len(df) > 0 else []
+        except Exception as e:
+            last_err = e
+            if attempt == 1:
+                print(f"    [{site}] error: {e} — retrying in {RETRY_DELAY}s",
+                      file=sys.stderr)
+                time.sleep(RETRY_DELAY)
+    print(f"    [{site}] failed after retry: {last_err}", file=sys.stderr)
+    if "429" in str(last_err):
+        print(f"    [{site}] rate-limited (429). Wait a few hours, lower "
+              f"max_results_per_query, set linkedin_fetch_description=false, "
+              f"or configure search.proxies.", file=sys.stderr)
+    return []
+
+
 def scrape_jobs(
     config: dict,
     keywords: list[str] | None = None,
     location: str | None = None,
     skip_seen: bool = True,
 ) -> list[dict]:
-    """Search jobs using JobSpy for each keyword, aggregate and deduplicate."""
+    """Search jobs using JobSpy for each keyword and site, aggregate and deduplicate."""
     scrape_jobs_fn = _jobspy_import()
 
     search_config = config.get("search", {})
@@ -162,39 +229,53 @@ def scrape_jobs(
     results_wanted = search_config.get("max_results_per_query", 20)
     domains = search_config.get("job_domains", [])
     sites = _domains_to_sites(domains)
+    fetch_description = search_config.get("linkedin_fetch_description", True)
+    country_indeed = search_config.get("country_indeed", "USA")
+    proxies = search_config.get("proxies") or None
+    user_agent = search_config.get("user_agent") or None
+    request_delay = search_config.get("request_delay", DEFAULT_REQUEST_DELAY)
 
-    if search_config.get("remote") and loc:
-        loc = f"{loc}"  # JobSpy handles remote via is_remote filter; keep loc clean
-
-    print(f"Sites: {sites} | Time range: {time_range} ({hours_old}h) | Results/keyword: {results_wanted}")
+    print(f"Sites: {sites} | Time range: {time_range} ({hours_old}h) | "
+          f"Results/keyword: {results_wanted} | LinkedIn descriptions: {fetch_description}")
 
     all_jobs = []
+    site_totals: dict[str, int] = {s: 0 for s in sites}
+    first_call = True
     for kw in keywords_list:
         print(f"Searching: {kw} | {loc}")
-        try:
-            df = scrape_jobs_fn(
-                site_name=sites,
-                search_term=kw,
-                location=loc,
+        rows: list[dict] = []
+        for site in sites:
+            if not first_call and request_delay:
+                time.sleep(request_delay)
+            first_call = False
+            site_rows = _scrape_site(
+                scrape_jobs_fn, site, kw, loc,
                 results_wanted=results_wanted,
                 hours_old=hours_old,
-                linkedin_fetch_description=True,
-                country_indeed="USA",
-                verbose=0,
+                fetch_description=fetch_description,
+                country_indeed=country_indeed,
+                proxies=proxies,
+                user_agent=user_agent,
             )
-            rows = df.to_dict(orient="records") if df is not None and len(df) > 0 else []
-        except Exception as e:
-            print(f"  JobSpy error: {e}", file=sys.stderr)
-            rows = []
+            site_totals[site] += len(site_rows)
+            print(f"    [{site}] {len(site_rows)} postings")
+            rows.extend(site_rows)
 
-        # Filter to remote if configured
+        # Filter to remote if configured (NaN-safe)
         if search_config.get("remote"):
-            rows = [r for r in rows if r.get("is_remote") or
-                    "remote" in str(r.get("location", "")).lower()]
+            rows = [r for r in rows if _truthy(r.get("is_remote")) or
+                    "remote" in str(r.get("location", "")).lower() or
+                    "remote" in str(r.get("title", "")).lower()]
 
         normalized = [normalize_jobspy_row(r) for r in rows]
         all_jobs.extend(normalized)
         print(f"  Found {len(normalized)} postings")
+
+    print("Per-site totals: " + ", ".join(f"{s}={n}" for s, n in site_totals.items()))
+    if all(n == 0 for n in site_totals.values()) and keywords_list:
+        print("WARNING: every site returned 0 results. Likely causes: "
+              "rate-limiting/blocking (see errors above), no network access, "
+              "or overly narrow keywords/location.", file=sys.stderr)
 
     # Deduplicate across keywords
     all_jobs = deduplicate_jobs(all_jobs)

@@ -3,6 +3,7 @@
 # Workflow: search → score → save tracker to Obsidian
 # Cover letters are generated manually after user reviews the tracker in Obsidian.
 set -e
+set -o pipefail
 
 LOG_FILE="$HOME/.job-hunter.log"
 SCRIPTS_DIR="$HOME/.claude/skills/job-hunter/scripts"
@@ -64,41 +65,9 @@ fi
 log "Scoring jobs..."
 $PYTHON "$SCRIPTS_DIR/score_jobs.py" -i "$SCRAPED" -o "$SCORED" --config "$CONFIG" 2>&1 | tee -a "$LOG_FILE"
 
-# Step 3: Save job tracker (score > 40 only, with Source column)
+# Step 3: Save job tracker (min score from config `min_score`, default 70)
 log "Saving job tracker to Obsidian..."
-$PYTHON - <<EOF 2>&1 | tee -a "$LOG_FILE"
-import json
-from pathlib import Path
-
-with open("$SCORED") as f:
-    jobs = json.load(f)
-
-filtered = [j for j in jobs if j.get("match_score", 0) > 70]
-tracker_path = Path("$TRACKER")
-
-if tracker_path.exists():
-    print(f"Tracker already exists for today, skipping: {tracker_path}")
-else:
-    lines = [
-        "# Job Tracker - $TODAY",
-        "",
-        f"**Jobs with score > 70:** {len(filtered)} of {len(jobs)} found today",
-        "",
-        "| # | Score | Title | Company | Salary | Remote | Source | Link |",
-        "|---|-------|-------|---------|--------|--------|--------|------|",
-    ]
-    for i, job in enumerate(filtered, 1):
-        title   = job.get("title", "N/A").replace("|", "-")[:50]
-        company = (job.get("company") or "-").replace("|", "-")[:30]
-        score   = job.get("match_score", 0)
-        salary  = job.get("salary") or "-"
-        remote  = "Yes" if job.get("remote") else "No"
-        source  = job.get("source", "-").capitalize()
-        url     = job.get("url", "#")
-        lines.append(f"| {i} | {score} | {title} | {company} | {salary} | {remote} | {source} | [Apply]({url}) |")
-    tracker_path.write_text("\n".join(lines) + "\n")
-    print(f"Saved {len(filtered)} jobs to {tracker_path}")
-EOF
+$PYTHON "$SCRIPTS_DIR/write_tracker.py" -i "$SCORED" --config "$CONFIG" 2>&1 | tee -a "$LOG_FILE"
 
 log "Done. Review 'Job Tracker - $TODAY.md' in Obsidian and ask Claude which numbers to generate cover letters for."
 log "========================================"

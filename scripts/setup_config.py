@@ -24,13 +24,22 @@ DEFAULT_CONFIG = {
     "resume_path": "",
     "obsidian_vault": "",
     "user_name": "",
+    "min_score": 70,
     "search": {
         "keywords": [],
         "location": "",
         "remote": True,
         "time_range": "week",
         "max_results_per_query": 20,
-        "job_domains": ["linkedin.com", "indeed.com", "glassdoor.com", "builtin.com", "wellfound.com"]
+        # glassdoor removed: upstream JobSpy 400 errors; builtin/wellfound
+        # were never supported by JobSpy and silently did nothing
+        "job_domains": ["linkedin.com", "indeed.com"],
+        # LinkedIn anti-rate-limit knobs (JobSpy provider only):
+        "linkedin_fetch_description": True,   # set False if you hit 429s
+        "request_delay": 3,                   # seconds between JobSpy calls
+        "proxies": [],                        # e.g. ["user:pass@host:port"]
+        "user_agent": "",                     # override if LinkedIn blocks default UA
+        "country_indeed": "USA"
     }
 }
 
